@@ -10,14 +10,16 @@ class DeveloperToolsPrompts:
         return f"""Query: {query}
                 Article Content: {content}
                 
-                Extract a list of specific tool/service names mentioned in this content that are relevant to "{query}".
+                Extract a list of specific tool/service names mentioned in this content that are relevant to \"{query}\".
                 
                 Rules:
                 - Only include actual product names, not generic terms
                 - Focus on tools developers can directly use/implement
                 - Include both open source and commercial options
                 - Limit to the 5 most relevant tools
-                - Return just the tool names, one per line, no descriptions
+                - Return just the tool names, one per line
+                - Do NOT include any numbers, bullet points, summaries, explanations, or extra text
+                - Do NOT include any lines that are not tool names
                 
                 Example format:
                 Supabase

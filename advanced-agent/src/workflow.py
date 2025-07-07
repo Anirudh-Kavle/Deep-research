@@ -47,12 +47,14 @@ class Workflow:
             article_query, num_results=3)
 
         all_content = ""
-        for result in search_results.data:
+        # Safely handle search_results which may be a list (error case) or object with .data
+        results_data = search_results.data if hasattr(search_results, 'data') else []
+        for result in results_data:
             url = result.get("url", "")
             if url.endswith(".pdf"):
                 continue
             scraped = self.firecrawl.scrape_company_pages(url)
-            if scraped and hasattr(scraped, "markdown") and scraped.markdown.strip():
+            if scraped and hasattr(scraped, "markdown") and isinstance(scraped.markdown, str) and scraped.markdown.strip():
                 all_content += scraped.markdown[:1500] + "\n\n"
 
         messages = [
@@ -63,13 +65,22 @@ class Workflow:
         try:
             response = self.llm.invoke(messages)
             tool_names = []
-            for line in response.content.strip().split("\n"):
-                line = line.strip()
-                if not line or line.lower().startswith("here are"):
-                    continue
-                if line[0].isdigit() and "." in line:
-                    line = line.split(".", 1)[1].strip()
-                tool_names.append(line)
+            if isinstance(response.content, str):
+                for line in response.content.strip().split("\n"):
+                    line = line.strip()
+                    if not line:
+                        continue
+                    # Filter out lines that are not likely tool names
+                    if line.lower().startswith("here are"):
+                        continue
+                    if line[0].isdigit() and "." in line:
+                        continue
+                    summary_keywords = ["top", "mentioned", "alternatives", "tools", "summary", "article", "content"]
+                    if any(word in line.lower() for word in summary_keywords):
+                        continue
+                    if len(line.split()) > 5:
+                        continue
+                    tool_names.append(line)
             print(f"Extracted tools: {', '.join(tool_names[:5])}")
             return {"extracted_tools": tool_names}
         except Exception as e:
@@ -220,9 +231,10 @@ class Workflow:
             print("⚠️ No extracted tools found, falling back to direct search")
             search_results = self.firecrawl.search_companies(
                 state.query, num_results=4)
+            results_data = search_results.data if hasattr(search_results, 'data') else []
             tool_names = [
                 result.get("metadata", {}).get("title", "Unknown")
-                for result in search_results.data
+                for result in results_data
             ]
         else:
             tool_names = extracted_tools[:4]
@@ -234,8 +246,9 @@ class Workflow:
             tool_search_results = self.firecrawl.search_companies(
                 tool_name + " official site", num_results=1)
 
-            if tool_search_results:
-                result = tool_search_results.data[0]
+            tool_results_data = tool_search_results.data if hasattr(tool_search_results, 'data') else []
+            if tool_results_data:
+                result = tool_results_data[0]
                 url = result.get("url", "")
 
                 company = CompanyInfo(
@@ -247,18 +260,18 @@ class Workflow:
                 )
 
                 scraped = self.firecrawl.scrape_company_pages(url)
-                if scraped:
-                    content = scraped.markdown
-                    analysis = self._analyze_company_content(
-                        company.name, content)
+                # Ensure content is a string for _analyze_company_content
+                content = scraped.markdown if (scraped and hasattr(scraped, "markdown") and isinstance(scraped.markdown, str)) else ""
+                analysis = self._analyze_company_content(
+                    company.name, content)
 
-                    company.pricing_model = analysis.pricing_model
-                    company.is_open_source = analysis.is_open_source
-                    company.tech_stack = analysis.tech_stack
-                    company.description = analysis.description
-                    company.api_available = analysis.api_available
-                    company.language_support = analysis.language_support
-                    company.integration_capabilities = analysis.integration_capabilities
+                company.pricing_model = analysis.pricing_model
+                company.is_open_source = analysis.is_open_source
+                company.tech_stack = analysis.tech_stack
+                company.description = analysis.description
+                company.api_available = analysis.api_available
+                company.language_support = analysis.language_support
+                company.integration_capabilities = analysis.integration_capabilities
 
                 companies.append(company)
 
